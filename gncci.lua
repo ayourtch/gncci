@@ -10,6 +10,11 @@ function gncci_connect(sockfd, addr)
   return o.connect(sockfd, addr)
 end
 
+function gncci_send(sockfd, buf, flags)
+  print("Send:", sockfd, buf)
+  return o.send(sockfd, buf, flags)
+end
+
 function gncci_init()
   print("Hello!")
 end

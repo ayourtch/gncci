@@ -120,12 +120,28 @@ static int Lconnect(lua_State *L) {
   lua_pushinteger(L, ret);
   return 1;
 }
-  
+
+int Lsend(lua_State *L) {
+  static ssize_t (*real_send)(int sockfd, const void *buf, 
+                              size_t len, int flags) = NULL;
+  int sockfd = luaL_checkint(L, 1);
+  void *buf = (void*)luaL_checkstring(L, 2);
+  int len = lua_objlen(L, 2);
+  int flags = luaL_checkint(L, 3);
+
+  if(!real_send) real_send = dlsym(RTLD_NEXT, "send");
+
+
+  ssize_t ret = real_send(sockfd, buf, len, flags);
+  lua_pushinteger(L, ret);
+  return 1;
+}
 
 
 static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
   {"connect", Lconnect},
+  {"send", Lsend},
   {NULL, NULL}
 };
 
@@ -261,17 +277,20 @@ int select(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, struct timeval *timeout) = NULL;
   if(!real_select) real_select = dlsym(RTLD_NEXT, "select");
   int ret = real_select(nfds, readfds, writefds, exceptfds, timeout);
-  fprintf(stderr, "select(nfds:%d): %d\n", nfds, ret);
+  // fprintf(stderr, "select(nfds:%d): %d\n", nfds, ret);
   return ret;
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
-  static ssize_t (*real_send)(int sockfd, const void *buf, 
-                              size_t len, int flags) = NULL;
-  if(!real_send) real_send = dlsym(RTLD_NEXT, "send");
-
-  ssize_t ret = real_send(sockfd, buf, len, flags);
-  fprintf(stderr, " send(%d) = %ld\n", sockfd, ret);
+  int ret;
+  lua_State *L = Lua();
+  lua_getglobal(L, "gncci_send");
+  lua_pushnumber(L, sockfd);
+  lua_pushlstring(L, buf, len); 
+  lua_pushnumber(L, flags);
+  lua_pcall_with_debug(L, 3, 1); 
+  ret = lua_tonumber(L, -1);
+  check_lock(0);
   return ret;
 }
 
