@@ -243,10 +243,6 @@ int connect(int sockfd, const struct sockaddr *addr,
   } else {
     ret = real_connect(sockfd, addr, addrlen);
   }
-  if (print_sockaddr(addr)) {
-    fprintf(stderr, " connect(%d): %d\n", sockfd, ret);
-    fprintf(stderr, "  errno: %s\n", strerror(errno));
-  }
   check_lock(0);
   return ret;
 }
