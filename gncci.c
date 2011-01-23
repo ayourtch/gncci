@@ -289,6 +289,7 @@ static int Lpoll(lua_State *L) {
   if(!real_poll) real_poll = dlsym(RTLD_NEXT, "poll");
 
   int ret = real_poll(myfds, nfds, timeout);
+  // printf("REAL POLL: %d\n", ret);
   for(i=0;i<nfds;i++) {
     lua_pushnumber(L, myfds[i].revents);
     lua_pushnumber(L, i+1);
@@ -298,7 +299,7 @@ static int Lpoll(lua_State *L) {
     lua_insert(L,-2);
     lua_settable(L,-3);
     // printf("GETTOP: %d\n", lua_gettop(L));
-    lua_remove(L, -1);
+    lua_remove(L, -2);
     // printf("*myfds[%d].fd: %d, events: %d, revents: %d\n", i, myfds[i].fd, myfds[i].events, myfds[i].revents);
     // assert(lua_gettop(L) == 3);
   }
@@ -425,10 +426,14 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   lua_getglobal(L, "gncci_poll");
   lua_push_pollfds(L, fds, nfds);
   lua_pushnumber(L, timeout);
-  printf("nfds: %d, timeout: %d\n", nfds, timeout);
+  // printf("nfds: %d, timeout: %d\n", nfds, timeout);
   lua_pcall_with_debug(L, 2, 2); 
-  ret = lua_fill_pollfds(L, lua_gettop(L), fds, nfds);
+  lua_fill_pollfds(L, lua_gettop(L), fds, nfds);
+  ret = lua_tonumber(L, -2);
+  lua_remove(L, -1);
+  lua_remove(L, -1);
   check_lock(0);
+  // printf("POLL: %d\n", ret);
   return ret;
 }
 

@@ -6,22 +6,22 @@ function gncci_socket(domain, type, protocol)
 end
 
 function gncci_connect(sockfd, sa)
-  -- print("Connect!", sa.af, sa.addr, sa.port)
+  print("Connect!", sa.af, sa.addr, sa.port)
   return o.connect(sockfd, sa)
 end
 
 function gncci_send(sockfd, buf, flags)
-  -- print("Send:", sockfd, buf)
+  print("Send:", sockfd, buf)
   return o.send(sockfd, buf, flags)
 end
 
 function gncci_sendto(sockfd, buf, flags, sa)
-  -- print("Sendto", sockfd)
+  print("Sendto", sockfd)
   return o.sendto(sockfd, buf, sa)
 end
 
 function gncci_recv(sockfd, len, flags)
-  -- print("Recv:", sockfd)
+  print("Recv:", sockfd)
   local ret = o.recv(sockfd, len, flags)
   return ret
 end
@@ -41,7 +41,7 @@ end
 
 function gncci_recvfrom(sockfd, len, flags)
   local from, ret = o.recvfrom(sockfd, len, flags)
-  -- print("Recvfrom:", from.addr, from.port)
+  print("Recvfrom:", from.addr, from.port)
   if from.port == 53 then
     local dns = ydns.decode_reply(ret)
     -- print_dns(dns)
@@ -50,11 +50,10 @@ function gncci_recvfrom(sockfd, len, flags)
 end
 
 function gncci_poll(fds, timeout)
-  print("Doing poll", #fds, timeout)
-  print(fds[1].fd, fds[1].events, fds[1].revents)
-  local fds, ret = o.poll(fds, timeout)
-  print("poll:", fds, ret)
-  return fds, ret
+  -- print("Doing poll", #fds, timeout); for i=1,#fds do print("ifds["..i.."]", fds[i].fd, fds[i].events, fds[i].revents) end
+  local ret, fds = o.poll(fds, timeout)
+  -- print("poll:", fds, ret); for i=1,#fds do print("ofds["..i.."]", fds[i].fd, fds[i].events, fds[i].revents) end
+  return ret, fds
 end
 
 
