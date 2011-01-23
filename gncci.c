@@ -509,10 +509,19 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
 
 int select(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, struct timeval *timeout) {
-  int ret;
+  // int ret;
   int i;
   int maxfd = 0;
   int act = 0;
+  int (*real_select)(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, struct timeval *timeout) = NULL;
+  if(!real_select) real_select = dlsym(RTLD_NEXT, "select");
+  int ret = real_select(nfds, readfds, writefds, exceptfds, timeout);
+  // fprintf(stderr, "select(nfds:%d): %d\n", nfds, ret);
+  return ret;
+
+
+
   lua_State *L = Lua();
   lua_getglobal(L, "gncci_select");
   lua_pushfdset(L, nfds, readfds);
