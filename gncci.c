@@ -121,7 +121,7 @@ static int Lconnect(lua_State *L) {
   return 1;
 }
 
-int Lsend(lua_State *L) {
+static int Lsend(lua_State *L) {
   static ssize_t (*real_send)(int sockfd, const void *buf, 
                               size_t len, int flags) = NULL;
   int sockfd = luaL_checkint(L, 1);
@@ -137,11 +137,30 @@ int Lsend(lua_State *L) {
   return 1;
 }
 
+static int Lsendto(lua_State *L) {
+  static ssize_t (*real_sendto)(int sockfd, const void *buf, size_t len, 
+                                int flags, const struct sockaddr *dest_addr, 
+                                socklen_t addrlen) = NULL;
+  int sockfd = luaL_checkint(L, 1);
+  void *buf = (void*) luaL_checkstring(L, 2);
+  size_t len = lua_objlen(L, 2);
+  int flags = luaL_checkint(L, 3);
+  struct sockaddr_storage sa;
+  int sa_len = lua_fill_sockaddr(L, 4, &sa);
+  int ret;
+
+  if(!real_sendto) real_sendto = dlsym(RTLD_NEXT, "sendto");
+  ret = real_sendto(sockfd, buf, len, flags, (void*)&sa, sa_len);
+  lua_pushinteger(L, ret); 
+  return 1;
+}
+
 
 static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
   {"connect", Lconnect},
   {"send", Lsend},
+  {"sendto", Lsendto},
   {NULL, NULL}
 };
 
@@ -296,16 +315,17 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
 
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                       const struct sockaddr *dest_addr, socklen_t addrlen) {
-  static ssize_t (*real_sendto)(int sockfd, const void *buf, size_t len, 
-                                int flags, const struct sockaddr *dest_addr, 
-                                socklen_t addrlen) = NULL;
-
-  if(!real_sendto) real_sendto = dlsym(RTLD_NEXT, "sendto");
-  int i = real_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
-  if(print_sockaddr(dest_addr)) {
-    fprintf(stderr, " sendto(%d) = %d\n", sockfd, i);
-  }
-  return i;
+  int ret;
+  lua_State *L = Lua();
+  lua_getglobal(L, "gncci_sendto");
+  lua_pushnumber(L, sockfd);
+  lua_pushlstring(L, buf, len); 
+  lua_pushnumber(L, flags);
+  lua_pushsockaddr(L, dest_addr); 
+  lua_pcall_with_debug(L, 4, 1); 
+  ret = lua_tonumber(L, -1);
+  check_lock(0);
+  return ret;
 }
 
 ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
