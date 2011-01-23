@@ -15,7 +15,12 @@
 #include "lualib.h"
 #include "lauxlib.h"
 #include <assert.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
+
+static char *lua_handler_code = NULL;
 
 #define lua_pcall_with_debug(L, nargs, nres) lua_pcall_with_debug_ex(L, nargs, nres, __FILE__, __LINE__)
 
@@ -324,7 +329,7 @@ static void check_lock(int latch) {
   static __thread volatile int lock = 0;
   if(latch) {
     while (lock > 0) { 
-      // printf("locked, waiting!\n");
+      printf("locked, waiting!\n");
       usleep(1000);
     }
     lock++;
@@ -335,13 +340,14 @@ static void check_lock(int latch) {
 
 static lua_State *Lua() {
   static __thread lua_State *L = NULL;
+
   check_lock(1);
   if(!L) {
     L = lua_open();
     luaL_openlibs(L);
     luaL_openlib(L, "o", o_funcs, 0);
 
-    if (luaL_dofile(L,"gncci.lua")!=0) {
+    if (luaL_dostring(L, lua_handler_code)!=0) {
       fprintf(stderr,"%s\n",lua_tostring(L,-1));
     } else {
       lua_getglobal(L, "gncci_init");
@@ -422,7 +428,12 @@ int connect(int sockfd, const struct sockaddr *addr,
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   int ret;
+  static int (*real_poll)(struct pollfd *fds, nfds_t nfds, int timeout) = NULL;
   lua_State *L = Lua();
+  if(!real_poll) real_poll = dlsym(RTLD_NEXT, "poll");
+  // check_lock(0); return real_poll(fds, nfds, timeout);
+  
+
   lua_getglobal(L, "gncci_poll");
   lua_push_pollfds(L, fds, nfds);
   lua_pushnumber(L, timeout);
@@ -527,3 +538,21 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
   return ret;
 }
 
+__attribute__((constructor)) 
+static void gncci_init () {  
+  struct stat sb;
+  int fd;
+  int nread;
+  lua_State *L;
+  if(!lua_handler_code) {
+    fd = open("gncci.lua", O_RDONLY);
+    assert(fd > 0);
+    assert(0 == fstat(fd, &sb));
+    lua_handler_code = malloc(sb.st_size); 
+    nread = read(fd, lua_handler_code, sb.st_size);
+    assert(nread == sb.st_size);
+    close(fd);
+    L = Lua();
+    check_lock(0);    
+  }
+}
