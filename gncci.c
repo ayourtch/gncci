@@ -121,7 +121,7 @@ static int lua_pushfdset(lua_State *L, int nfds, fd_set *fds) {
   int i;
   lua_createtable(L, 20, 0);
   for(i=0;i<nfds;i++) {
-    if(FD_ISSET(i, fds)) {
+    if(fds && FD_ISSET(i, fds)) {
       lua_pushnumber(L, 1+lua_objlen(L, -1)); 
       lua_pushnumber(L, i); 
       lua_settable(L, -3);
@@ -132,6 +132,7 @@ static int lua_pushfdset(lua_State *L, int nfds, fd_set *fds) {
 static int lua_fillfdset(lua_State *L, int index, fd_set *fds, int *maxfd) {
   int i,j,max;
   int fd;
+  if(!fds) { return 0; }
   if(index < 0) { 
     index = lua_gettop(L)+1+index;
   }
@@ -516,19 +517,22 @@ int select(int nfds, fd_set *readfds, fd_set *writefds,
   int (*real_select)(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, struct timeval *timeout) = NULL;
   if(!real_select) real_select = dlsym(RTLD_NEXT, "select");
-  int ret = real_select(nfds, readfds, writefds, exceptfds, timeout);
+  // int ret = real_select(nfds, readfds, writefds, exceptfds, timeout);
   // fprintf(stderr, "select(nfds:%d): %d\n", nfds, ret);
-  return ret;
-
-
+  // return ret;
 
   lua_State *L = Lua();
   lua_getglobal(L, "gncci_select");
   lua_pushfdset(L, nfds, readfds);
   lua_pushfdset(L, nfds, writefds);
   lua_pushfdset(L, nfds, exceptfds);
-  lua_pushnumber(L, timeout->tv_sec);
-  lua_pushnumber(L, timeout->tv_usec);
+  if (timeout) {
+    lua_pushnumber(L, timeout->tv_sec);
+    lua_pushnumber(L, timeout->tv_usec);
+  } else {
+    lua_pushnumber(L, 0);
+    lua_pushnumber(L, 0);
+  }
   lua_pcall_with_debug(L, 5, 5); 
   act += lua_fillfdset(L, -5, readfds, &maxfd);
   act += lua_fillfdset(L, -4, writefds, &maxfd);
