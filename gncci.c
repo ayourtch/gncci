@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/select.h>
 #include <fcntl.h>
 
 
@@ -116,6 +117,38 @@ int lua_fill_sockaddr(lua_State *L, int index, struct sockaddr_storage *sa) {
    
 }
 
+static int lua_pushfdset(lua_State *L, int nfds, fd_set *fds) {
+  int i;
+  lua_createtable(L, 20, 0);
+  for(i=0;i<nfds;i++) {
+    if(FD_ISSET(i, fds)) {
+      lua_pushnumber(L, 1+lua_objlen(L, -1)); 
+      lua_pushnumber(L, i); 
+      lua_settable(L, -3);
+    }
+  }
+}
+
+static int lua_fillfdset(lua_State *L, int index, fd_set *fds, int *maxfd) {
+  int i,j,max;
+  int fd;
+  if(index < 0) { 
+    index = lua_gettop(L)+1+index;
+  }
+  FD_ZERO(fds);
+  max = lua_objlen(L, index);
+  for(i=0;i<max;i++) {
+    lua_pushnumber(L, 1+i);
+    lua_gettable(L, index);
+    fd = luaL_checkint(L, -1);
+    lua_remove(L, -1);
+    FD_SET(fd, fds);
+    if(maxfd && (fd > *maxfd)) {
+      *maxfd = fd;
+    }
+  }
+  return max;
+}
 
 static int Lsocket(lua_State *L) {
   int domain = luaL_checkint(L, 1);
@@ -313,6 +346,32 @@ static int Lpoll(lua_State *L) {
   return 2;
 }
 
+static int Lselect(lua_State *L) {
+  fd_set rfds;
+  fd_set wfds;
+  fd_set efds; 
+  struct timeval tv;
+  int maxfd = 0;
+  static int (*real_select)(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, struct timeval *timeout) = NULL;
+  if(!real_select) real_select = dlsym(RTLD_NEXT, "select");
+  FD_ZERO(&rfds); FD_ZERO(&wfds); FD_ZERO(&efds);
+  lua_fillfdset(L, 1, &rfds, &maxfd); 
+  lua_fillfdset(L, 2, &wfds, &maxfd); 
+  lua_fillfdset(L, 3, &wfds, &maxfd); 
+  tv.tv_sec = luaL_checkint(L, 4);
+  tv.tv_usec = luaL_checkint(L, 5);
+  
+  int ret = real_select(maxfd+1, &rfds, &wfds, &efds, &tv);
+  
+  lua_pushfdset(L, maxfd+1, &rfds);
+  lua_pushfdset(L, maxfd+1, &wfds);
+  lua_pushfdset(L, maxfd+1, &efds);
+  lua_pushnumber(L, tv.tv_sec);
+  lua_pushnumber(L, tv.tv_usec);
+  return 5;
+}
+
 static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
   {"connect", Lconnect},
@@ -321,6 +380,7 @@ static const luaL_reg o_funcs[] = {
   {"recv", Lrecv},
   {"recvfrom", Lrecvfrom},
   {"poll", Lpoll},
+  {"select", Lselect},
   {NULL, NULL}
 };
 
@@ -444,18 +504,29 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   lua_remove(L, -1);
   lua_remove(L, -1);
   check_lock(0);
-  // printf("POLL: %d\n", ret);
   return ret;
 }
 
 int select(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, struct timeval *timeout) {
-  static int (*real_select)(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timeval *timeout) = NULL;
-  if(!real_select) real_select = dlsym(RTLD_NEXT, "select");
-  int ret = real_select(nfds, readfds, writefds, exceptfds, timeout);
-  // fprintf(stderr, "select(nfds:%d): %d\n", nfds, ret);
-  return ret;
+  int ret;
+  int i;
+  int maxfd = 0;
+  int act = 0;
+  lua_State *L = Lua();
+  lua_getglobal(L, "gncci_select");
+  lua_pushfdset(L, nfds, readfds);
+  lua_pushfdset(L, nfds, writefds);
+  lua_pushfdset(L, nfds, exceptfds);
+  lua_pushnumber(L, timeout->tv_sec);
+  lua_pushnumber(L, timeout->tv_usec);
+  lua_pcall_with_debug(L, 5, 5); 
+  act += lua_fillfdset(L, -5, readfds, &maxfd);
+  act += lua_fillfdset(L, -4, writefds, &maxfd);
+  act += lua_fillfdset(L, -3, exceptfds, &maxfd);
+
+  check_lock(0);
+  return act;
 }
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags) {

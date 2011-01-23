@@ -56,6 +56,12 @@ function gncci_poll(fds, timeout)
   return ret, fds
 end
 
+function gncci_select(rfds, wfds, efds, tsec, tusec)
+  local a_rfds, a_wfds, a_efds, a_tsec, a_tusec = o.select(rfds, wfds, efds, tsec, tusec)
+  printf("Select!\n")
+  return a_rfds, a_wfds, a_efds, a_tsec, a_tusec
+end
+
 
 function gncci_init()
   print("Hello!")
