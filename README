@@ -1,0 +1,8 @@
+This is a small layer inbetween the socket library and the program
+that allows to intercept all the socket-related calls and 
+rewrite your own processing in Lua.
+
+The idea came during the happy eyeballs discussion, hence the name.
+
+requres the ydns lua binding (https://github.com/ayourtch/ydns) 
+if you want to decode the DNS data
