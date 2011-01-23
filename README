@@ -6,3 +6,8 @@ The idea came during the happy eyeballs discussion, hence the name.
 
 requres the ydns lua binding (https://github.com/ayourtch/ydns) 
 if you want to decode the DNS data
+
+Usage:
+
+LD_PRELOAD=./gncci.so firefox
+

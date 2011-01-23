@@ -1,4 +1,4 @@
-local ydns = require "ydns"
+-- local ydns = require "ydns"
 
 function gncci_socket(domain, type, protocol)
   -- print("Socket!")
@@ -43,7 +43,7 @@ function gncci_recvfrom(sockfd, len, flags)
   local from, ret = o.recvfrom(sockfd, len, flags)
   -- print("Recvfrom:", from.addr, from.port)
   if from.port == 53 then
-    local dns = ydns.decode_reply(ret)
+    -- local dns = ydns.decode_reply(ret)
     -- print_dns(dns)
   end
   return from, ret
