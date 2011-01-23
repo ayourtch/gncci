@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
@@ -45,6 +46,25 @@ static void Lsetls(lua_State *L, char *key, char *value, int vlen) {
   lua_pushlstring(L, value, vlen);
   lua_settable(L, -3);
 }
+
+static void lua_pushsockaddr(lua_State *L, const struct sockaddr *sa) {
+  struct sockaddr_in *s4;
+  struct sockaddr_in6 *s6;
+  char dst[128];
+  lua_newtable(L);
+  if(AF_INET == sa->sa_family) {
+    s4 = (void*)sa;
+    Lseti(L, "af", AF_INET);
+    Lsets(L, "addr", (char *)inet_ntop(AF_INET, &s4->sin_addr, dst, sizeof(dst)-1));
+    Lseti(L, "port", ntohs(s4->sin_port));
+  } else if (AF_INET6 == sa->sa_family) {
+    s6 = (void*)sa;
+    Lseti(L, "af", AF_INET6);
+    Lsets(L, "addr", (char *)inet_ntop(AF_INET6, &s6->sin6_addr, dst, sizeof(dst)-1));
+    Lseti(L, "port", ntohs(s6->sin6_port));
+  }
+}
+
 
 
 int lua_fill_sockaddr(lua_State *L, int index, struct sockaddr_storage *sa) {
@@ -155,12 +175,55 @@ static int Lsendto(lua_State *L) {
   return 1;
 }
 
+static int Lrecv(lua_State *L) {
+  static ssize_t (*real_recv)(int sockfd, void *buf, size_t len, int flags) = NULL;
+
+  int sockfd = luaL_checkint(L, 1);
+  int len = luaL_checkint(L, 2);
+  void *buf = malloc(len);
+  int flags = luaL_checkint(L, 3);
+
+  if(!real_recv) real_recv = dlsym(RTLD_NEXT, "recv");
+  ssize_t ret = real_recv(sockfd, buf, len, flags);
+  if (ret >= 0) {
+    lua_pushlstring(L, buf, ret);
+    free(buf);
+  } else {
+    lua_pushnil(L);
+  }
+  return 1;
+}
+
+static int Lrecvfrom(lua_State *L) {
+  static ssize_t (*real_recvfrom)(int sockfd, void *buf, size_t len, int flags,
+                        struct sockaddr *src_addr, socklen_t *addrlen) = NULL;
+  int sockfd = luaL_checkint(L, 1);
+  int len = luaL_checkint(L, 2);
+  void *buf = malloc(len);
+  int flags = luaL_checkint(L, 3);
+  struct sockaddr_storage sa;
+  int sa_len = sizeof(sa);
+
+  if(!real_recvfrom) real_recvfrom = dlsym(RTLD_NEXT, "recvfrom");
+  ssize_t ret = real_recvfrom(sockfd, buf, len, flags, (void*)&sa, &sa_len);
+  lua_pushsockaddr(L, (void*)&sa);
+  if (ret >= 0) {
+    lua_pushlstring(L, buf, ret);
+    free(buf);
+  } else {
+    lua_pushnil(L);
+  }
+  return 2;
+}
+
 
 static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
   {"connect", Lconnect},
   {"send", Lsend},
   {"sendto", Lsendto},
+  {"recv", Lrecv},
+  {"recvfrom", Lrecvfrom},
   {NULL, NULL}
 };
 
@@ -214,24 +277,6 @@ int print_sockaddr(const struct sockaddr *sa) {
     return AF_INET6;
   } else {
     return 0;
-  }
-}
-
-void lua_pushsockaddr(lua_State *L, const struct sockaddr *sa) {
-  struct sockaddr_in *s4;
-  struct sockaddr_in6 *s6;
-  char dst[128];
-  lua_newtable(L);
-  if(AF_INET == sa->sa_family) {
-    s4 = (void*)sa;
-    Lseti(L, "af", AF_INET);
-    Lsets(L, "addr", (char *)inet_ntop(AF_INET, &s4->sin_addr, dst, sizeof(dst)-1));
-    Lseti(L, "port", ntohs(s4->sin_port));
-  } else if (AF_INET6 == sa->sa_family) {
-    s6 = (void*)sa;
-    Lseti(L, "af", AF_INET6);
-    Lsets(L, "addr", (char *)inet_ntop(AF_INET6, &s6->sin6_addr, dst, sizeof(dst)-1));
-    Lseti(L, "port", ntohs(s6->sin6_port));
   }
 }
 
@@ -329,24 +374,54 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
 }
 
 ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
-  static ssize_t (*real_recv)(int sockfd, void *buf, size_t len, int flags) = NULL;
-  
-  if(!real_recv) real_recv = dlsym(RTLD_NEXT, "recv");
-  ssize_t ret = real_recv(sockfd, buf, len, flags);
-  fprintf(stderr, "recv(%d): %ld\n", sockfd, ret);
+  int ret;
+  lua_State *L = Lua();
+  int retlen;
+  char *retbuf;
+  lua_getglobal(L, "gncci_recv");
+  lua_pushnumber(L, sockfd);
+  lua_pushnumber(L, len); 
+  lua_pushnumber(L, flags);
+  lua_pcall_with_debug(L, 3, 1); 
+  if (lua_isnil(L, -1)) {
+    ret = -1;
+  } else {
+    retbuf = (void *)lua_tostring(L, -1);
+    retlen = lua_objlen(L, -1);
+    memcpy(buf, retbuf, retlen);
+    ret = retlen;
+  }
+  check_lock(0);
   return ret;
 }
 
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         struct sockaddr *src_addr, socklen_t *addrlen) {
-  static ssize_t (*real_recvfrom)(int sockfd, void *buf, size_t len, int flags,
-                        struct sockaddr *src_addr, socklen_t *addrlen) = NULL;
-
-  if(!real_recvfrom) real_recvfrom = dlsym(RTLD_NEXT, "recvfrom");
-  ssize_t ret = real_recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
-  if(print_sockaddr(src_addr)) {
-    fprintf(stderr, " recvfrom(%d): %ld\n", sockfd, ret);
+  int ret;
+  lua_State *L = Lua();
+  int retlen;
+  char *retbuf;
+  int retsalen;
+  struct sockaddr_storage sa;
+  lua_getglobal(L, "gncci_recvfrom");
+  lua_pushnumber(L, sockfd);
+  lua_pushnumber(L, len); 
+  lua_pushnumber(L, flags);
+  lua_pushsockaddr(L, src_addr); 
+  lua_pcall_with_debug(L, 4, 2); 
+  retsalen = lua_fill_sockaddr(L, lua_gettop(L)-1, &sa);
+  memcpy(src_addr, &sa, *addrlen);
+  *addrlen = retsalen;
+  
+  if (lua_isnil(L, -1)) {
+    ret = -1;
+  } else {
+    retbuf = (void *)lua_tostring(L, -1);
+    retlen = lua_objlen(L, -1);
+    memcpy(buf, retbuf, retlen);
+    ret = retlen;
   }
+  check_lock(0);
   return ret;
 }
 
