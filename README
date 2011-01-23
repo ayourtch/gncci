@@ -21,3 +21,5 @@ your own interesting and complicated behaviors if you wish.
 Beware: the Lua environment is thread-local, so you might need to 
 have some sort of shared memory library used.
 
+NB: seems the addition of constructor call made the behavior a bit flaky,
+I am not yet sure whether it is the race or something more fundamental.
