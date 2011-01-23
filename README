@@ -1,3 +1,5 @@
+General Network Connections Contortion Interface
+
 This is a small layer inbetween the socket library and the program
 that allows to intercept all the socket-related calls and 
 rewrite your own processing in Lua.
