@@ -14,6 +14,7 @@
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
+#include <assert.h>
 
 
 #define lua_pcall_with_debug(L, nargs, nres) lua_pcall_with_debug_ex(L, nargs, nres, __FILE__, __LINE__)
@@ -175,19 +176,26 @@ static int Lsendto(lua_State *L) {
   return 1;
 }
 
+static __thread char sbuf[16384];
+
 static int Lrecv(lua_State *L) {
   static ssize_t (*real_recv)(int sockfd, void *buf, size_t len, int flags) = NULL;
 
   int sockfd = luaL_checkint(L, 1);
   int len = luaL_checkint(L, 2);
-  void *buf = malloc(len);
+  void *buf;
   int flags = luaL_checkint(L, 3);
 
+  if (len > sizeof(sbuf)) {
+    buf = malloc(len);
+  } else {
+    buf = sbuf;
+  }
   if(!real_recv) real_recv = dlsym(RTLD_NEXT, "recv");
   ssize_t ret = real_recv(sockfd, buf, len, flags);
   if (ret >= 0) {
     lua_pushlstring(L, buf, ret);
-    free(buf);
+    if (buf != sbuf) { free(buf); }
   } else {
     lua_pushnil(L);
   }
@@ -199,23 +207,105 @@ static int Lrecvfrom(lua_State *L) {
                         struct sockaddr *src_addr, socklen_t *addrlen) = NULL;
   int sockfd = luaL_checkint(L, 1);
   int len = luaL_checkint(L, 2);
-  void *buf = malloc(len);
+  void *buf;
   int flags = luaL_checkint(L, 3);
   struct sockaddr_storage sa;
   int sa_len = sizeof(sa);
+
+  if (len > 32768) {
+    buf = malloc(len);
+  } else {
+    buf = sbuf;
+  }
 
   if(!real_recvfrom) real_recvfrom = dlsym(RTLD_NEXT, "recvfrom");
   ssize_t ret = real_recvfrom(sockfd, buf, len, flags, (void*)&sa, &sa_len);
   lua_pushsockaddr(L, (void*)&sa);
   if (ret >= 0) {
     lua_pushlstring(L, buf, ret);
-    free(buf);
+    if (buf != sbuf) { free(buf); }
   } else {
     lua_pushnil(L);
   }
   return 2;
 }
 
+enum { maxfds = 2048 };
+static __thread struct pollfd myfds[maxfds];
+
+static int lua_fill_pollfds(lua_State *L, int index, struct pollfd *pfd, int max) {
+  int sz = lua_objlen(L, index);
+  int i;
+  if (sz > max) { sz = max; }
+  for(i=0; i<sz; i++) {
+    lua_pushnumber(L, i+1);
+    lua_gettable(L, index);
+
+    lua_pushliteral(L, "fd");
+    lua_gettable(L, -2);
+    pfd[i].fd = luaL_checkint(L, -1);
+    lua_remove(L, -1);
+    // printf("Type: %s\n", lua_typename(L, lua_type(L, -1)));
+
+    lua_pushliteral(L, "events");
+    lua_gettable(L, -2);
+    pfd[i].events = luaL_checkint(L, -1);
+    lua_remove(L, -1);
+
+    lua_pushliteral(L, "revents");
+    lua_gettable(L, -2);
+    pfd[i].revents = luaL_checkint(L, -1);
+    lua_remove(L, -1);
+    
+    lua_remove(L, -1);
+  }
+  return sz;
+}
+
+static void lua_push_pollfds(lua_State *L, struct pollfd *pfd, int count) {
+  int i;
+  lua_createtable(L, count, 0);
+  for(i=0;i<count;i++) {
+    lua_pushnumber(L, 1+lua_objlen(L, -1));
+    lua_createtable(L, 0, 3);
+    Lseti(L, "fd", pfd[i].fd);
+    Lseti(L, "events", pfd[i].events);
+    Lseti(L, "revents", pfd[i].revents);
+    lua_settable(L, -3);
+  }
+}
+
+static int Lpoll(lua_State *L) {
+  int nfds = lua_fill_pollfds(L, 1, myfds, maxfds);
+  int timeout = luaL_checkint(L, 2);
+  int i;
+  static int (*real_poll)(struct pollfd *fds, nfds_t nfds, int timeout) = NULL;
+  assert(lua_gettop(L) == 2);
+
+  for(i=0;i<nfds;i++) {
+    // printf("+myfds[%d].fd: %d, events: %d, revents: %d\n", i, myfds[i].fd, myfds[i].events, myfds[i].revents);
+  }
+
+  if(!real_poll) real_poll = dlsym(RTLD_NEXT, "poll");
+
+  int ret = real_poll(myfds, nfds, timeout);
+  for(i=0;i<nfds;i++) {
+    lua_pushnumber(L, myfds[i].revents);
+    lua_pushnumber(L, i+1);
+    lua_gettable(L, 1);
+    lua_insert(L,-2);
+    lua_pushliteral(L,"revents");
+    lua_insert(L,-2);
+    lua_settable(L,-3);
+    // printf("GETTOP: %d\n", lua_gettop(L));
+    lua_remove(L, -1);
+    // printf("*myfds[%d].fd: %d, events: %d, revents: %d\n", i, myfds[i].fd, myfds[i].events, myfds[i].revents);
+    // assert(lua_gettop(L) == 3);
+  }
+  lua_pushnumber(L, ret); 
+  lua_pushvalue(L, 1);
+  return 2;
+}
 
 static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
@@ -224,15 +314,17 @@ static const luaL_reg o_funcs[] = {
   {"sendto", Lsendto},
   {"recv", Lrecv},
   {"recvfrom", Lrecvfrom},
+  {"poll", Lpoll},
   {NULL, NULL}
 };
 
 
 static void check_lock(int latch) {
-  static volatile int lock = 0;
+  static __thread volatile int lock = 0;
   if(latch) {
     while (lock > 0) { 
-      printf("locked, waiting!\n");
+      // printf("locked, waiting!\n");
+      usleep(1000);
     }
     lock++;
   } else {
@@ -241,7 +333,7 @@ static void check_lock(int latch) {
 }
 
 static lua_State *Lua() {
-  static lua_State *L = NULL;
+  static __thread lua_State *L = NULL;
   check_lock(1);
   if(!L) {
     L = lua_open();
@@ -328,10 +420,15 @@ int connect(int sockfd, const struct sockaddr *addr,
 }
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
-  static int (*real_poll)(struct pollfd *fds, nfds_t nfds, int timeout) = NULL;
-  if(!real_poll) real_poll = dlsym(RTLD_NEXT, "poll");
-  int ret = real_poll(fds, nfds, timeout);
-  // fprintf(stderr, "poll(%ld, %d): %d\n", nfds, timeout, ret);
+  int ret;
+  lua_State *L = Lua();
+  lua_getglobal(L, "gncci_poll");
+  lua_push_pollfds(L, fds, nfds);
+  lua_pushnumber(L, timeout);
+  printf("nfds: %d, timeout: %d\n", nfds, timeout);
+  lua_pcall_with_debug(L, 2, 2); 
+  ret = lua_fill_pollfds(L, lua_gettop(L), fds, nfds);
+  check_lock(0);
   return ret;
 }
 

@@ -44,9 +44,17 @@ function gncci_recvfrom(sockfd, len, flags)
   -- print("Recvfrom:", from.addr, from.port)
   if from.port == 53 then
     local dns = ydns.decode_reply(ret)
-    print_dns(dns)
+    -- print_dns(dns)
   end
   return from, ret
+end
+
+function gncci_poll(fds, timeout)
+  print("Doing poll", #fds, timeout)
+  print(fds[1].fd, fds[1].events, fds[1].revents)
+  local fds, ret = o.poll(fds, timeout)
+  print("poll:", fds, ret)
+  return fds, ret
 end
 
 
