@@ -13,3 +13,11 @@ Usage:
 
 LD_PRELOAD=./gncci.so firefox
 
+And it will execute the callbacks that are defined within gncci.lua file.
+
+The one that you see in the tree is "pass-through" but you can define
+your own interesting and complicated behaviors if you wish. 
+
+Beware: the Lua environment is thread-local, so you might need to 
+have some sort of shared memory library used.
+
