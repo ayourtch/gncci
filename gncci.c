@@ -373,6 +373,23 @@ static int Lselect(lua_State *L) {
   return 5;
 }
 
+static int Lsetsockopt(lua_State *L) {
+  static int (*real_setsockopt)(int sockfd, int level, int optname,
+                      const void *optval, socklen_t optlen) = NULL;
+  int sockfd = luaL_checkint(L, 1);
+  int level = luaL_checkint(L, 2);
+  int optname = luaL_checkint(L, 3);
+  void *optval = (void *)luaL_checkstring(L, 4);
+  int optlen = lua_objlen(L, 4);
+  int ret;
+
+  if(!real_setsockopt) real_setsockopt = dlsym(RTLD_NEXT, "setsockopt");
+  ret = real_setsockopt(sockfd, level, optname, optval, optlen);
+  lua_pushnumber(L, ret);
+  return 1;
+}
+
+
 static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
   {"connect", Lconnect},
@@ -382,6 +399,7 @@ static const luaL_reg o_funcs[] = {
   {"recvfrom", Lrecvfrom},
   {"poll", Lpoll},
   {"select", Lselect},
+  {"setsockopt", Lsetsockopt},
   {NULL, NULL}
 };
 
@@ -621,6 +639,22 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
   check_lock(0);
   return ret;
 }
+
+int setsockopt(int sockfd, int level, int optname,
+                      const void *optval, socklen_t optlen) {
+  int ret;
+  lua_State *L = Lua();
+  lua_getglobal(L, "gncci_setsockopt");
+  lua_pushnumber(L, sockfd);
+  lua_pushnumber(L, level);
+  lua_pushnumber(L, optname);
+  lua_pushlstring(L, optval, optlen);
+  lua_pcall_with_debug(L, 4, 1);
+  ret = lua_tonumber(L, -1);
+  check_lock(0);
+  return ret;
+}
+
 
 __attribute__((constructor)) 
 static void gncci_init () {  

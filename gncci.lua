@@ -6,6 +6,11 @@ function gncci_socket(domain, type, protocol)
   return o.socket(domain,type,protocol)
 end
 
+-- nothing to do with the API, just a fun function
+function clamp_mss(sockfd)
+  o.setsockopt(sockfd, 6, 2, "\000\004\000\000")
+end
+
 -- man 2 connect, except "sa" does not need a len,
 -- it's a table with three members:
 --   sa: address family
@@ -14,6 +19,9 @@ end
 
 function gncci_connect(sockfd, sa)
   -- print("Connect!", sa.af, sa.addr, sa.port)
+
+  -- you can clamp the MSS here, if you want.
+  -- clamp_mss(sockfd)
   return o.connect(sockfd, sa)
 end
 
@@ -81,8 +89,14 @@ end
 -- you're supposed to return all five.
 function gncci_select(rfds, wfds, efds, tsec, tusec)
   local a_rfds, a_wfds, a_efds, a_tsec, a_tusec = o.select(rfds, wfds, efds, tsec, tusec)
-  print("Select!")
+  -- print("Select!")
   return a_rfds, a_wfds, a_efds, a_tsec, a_tusec
+end
+
+function gncci_setsockopt(sockfd, level, optname, optval)
+  local ret = o.setsockopt(sockfd, level, optname, optval)
+  print("Setsockopt", sockfd, level, optname, optval);
+  return ret;
 end
 
 -- this one gets called upon init of the library
