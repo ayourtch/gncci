@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 
 static char *lua_handler_code = NULL;
@@ -666,7 +667,7 @@ static void gncci_init () {
     fd = open("gncci.lua", O_RDONLY);
     assert(fd > 0);
     assert(0 == fstat(fd, &sb));
-    lua_handler_code = malloc(sb.st_size); 
+    lua_handler_code = sbrk(sb.st_size); 
     nread = read(fd, lua_handler_code, sb.st_size);
     assert(nread == sb.st_size);
     close(fd);
