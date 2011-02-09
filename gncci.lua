@@ -2,7 +2,7 @@
 
 -- man 2 socket to know what parameters and return values are
 function gncci_socket(domain, type, protocol)
-  -- print("Socket!")
+  print("Socket!")
   return o.socket(domain,type,protocol)
 end
 
@@ -18,7 +18,7 @@ end
 --   port: the port number
 
 function gncci_connect(sockfd, sa)
-  -- print("Connect!", sa.af, sa.addr, sa.port)
+  print("This is a Connect!", sa.af, sa.addr, sa.port)
 
   -- you can clamp the MSS here, if you want.
   -- clamp_mss(sockfd)
@@ -27,21 +27,21 @@ end
 
 -- man 2 send, pretty much
 function gncci_send(sockfd, buf, flags)
-  -- print("Send:", sockfd, buf)
+  print("Send:", sockfd, buf)
   return o.send(sockfd, buf, flags)
 end
 
 -- man 2 sendto, see the connect above for 
 -- info on what "sa" is.
 function gncci_sendto(sockfd, buf, flags, sa)
-  -- print("Sendto", sockfd)
+  print("Sendto", sockfd)
   return o.sendto(sockfd, buf, sa)
 end
 
 -- receive up to len from sockfd,
 -- and return the value you have received
 function gncci_recv(sockfd, len, flags)
-  -- print("Recv:", sockfd)
+  print("Recv:", sockfd)
   local ret = o.recv(sockfd, len, flags)
   return ret
 end
@@ -88,8 +88,8 @@ end
 -- tsec and tusec are the pieces of the timeval struct
 -- you're supposed to return all five.
 function gncci_select(rfds, wfds, efds, tsec, tusec)
+  print("Select!", #rfds, #wfds, #efds, tsec, tusec)
   local a_rfds, a_wfds, a_efds, a_tsec, a_tusec = o.select(rfds, wfds, efds, tsec, tusec)
-  -- print("Select!")
   return a_rfds, a_wfds, a_efds, a_tsec, a_tusec
 end
 
