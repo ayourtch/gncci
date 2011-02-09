@@ -360,7 +360,7 @@ static int Lselect(lua_State *L) {
   FD_ZERO(&rfds); FD_ZERO(&wfds); FD_ZERO(&efds);
   lua_fillfdset(L, 1, &rfds, &maxfd); 
   lua_fillfdset(L, 2, &wfds, &maxfd); 
-  lua_fillfdset(L, 3, &wfds, &maxfd); 
+  lua_fillfdset(L, 3, &efds, &maxfd); 
   tv.tv_sec = luaL_checkint(L, 4);
   tv.tv_usec = luaL_checkint(L, 5);
   
