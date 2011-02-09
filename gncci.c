@@ -198,6 +198,20 @@ static int Lsend(lua_State *L) {
   return 1;
 }
 
+static int Lwrite(lua_State *L) {
+  static ssize_t (*real_write)(int sockfd, const void *buf, 
+                              size_t len) = NULL;
+  int sockfd = luaL_checkint(L, 1);
+  void *buf = (void*)luaL_checkstring(L, 2);
+  int len = lua_objlen(L, 2);
+
+  if(!real_write) real_write = dlsym(RTLD_NEXT, "write");
+
+  ssize_t ret = real_write(sockfd, buf, len);
+  lua_pushinteger(L, ret);
+  return 1;
+}
+
 static int Lsendto(lua_State *L) {
   static ssize_t (*real_sendto)(int sockfd, const void *buf, size_t len, 
                                 int flags, const struct sockaddr *dest_addr, 
@@ -395,6 +409,7 @@ static const luaL_reg o_funcs[] = {
   {"socket", Lsocket},
   {"connect", Lconnect},
   {"send", Lsend},
+  {"write", Lwrite},
   {"sendto", Lsendto},
   {"recv", Lrecv},
   {"recvfrom", Lrecvfrom},
@@ -569,6 +584,18 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags) {
   lua_pushlstring(L, buf, len); 
   lua_pushnumber(L, flags);
   lua_pcall_with_debug(L, 3, 1); 
+  ret = lua_tonumber(L, -1);
+  check_lock(0);
+  return ret;
+}
+
+ssize_t write(int fd, const void *buf, size_t len) {
+  int ret;
+  lua_State *L = Lua();
+  lua_getglobal(L, "gncci_write");
+  lua_pushnumber(L, fd);
+  lua_pushlstring(L, buf, len); 
+  lua_pcall_with_debug(L, 2, 1); 
   ret = lua_tonumber(L, -1);
   check_lock(0);
   return ret;

@@ -31,6 +31,11 @@ function gncci_send(sockfd, buf, flags)
   return o.send(sockfd, buf, flags)
 end
 
+function gncci_write(sockfd, buf)
+  print("Write:", sockfd, buf)
+  return o.write(sockfd, buf)
+end
+
 -- man 2 sendto, see the connect above for 
 -- info on what "sa" is.
 function gncci_sendto(sockfd, buf, flags, sa)
