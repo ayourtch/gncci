@@ -19,6 +19,8 @@ end
 
 function gncci_connect(sockfd, sa)
   print("This is a Connect!", sa.af, sa.addr, sa.port)
+  -- turn on the interception of "read"
+  -- o.intercept_read(true)
 
   -- you can clamp the MSS here, if you want.
   -- clamp_mss(sockfd)
@@ -48,6 +50,13 @@ end
 function gncci_recv(sockfd, len, flags)
   print("Recv:", sockfd)
   local ret = o.recv(sockfd, len, flags)
+  print("Recv result", ret)
+  return ret
+end
+
+function gncci_read(sockfd, len)
+  print("Read:", sockfd)
+  local ret = o.read(sockfd, len)
   return ret
 end
 

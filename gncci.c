@@ -256,6 +256,39 @@ static int Lrecv(lua_State *L) {
   return 1;
 }
 
+static int intercept_read = 0;
+
+static int Lintercept_read(lua_State *L) {
+  int was_intercepted = intercept_read;
+  intercept_read = ! (lua_toboolean(L, 1));
+  lua_pushnumber(L, was_intercepted);
+  return 1;
+}
+
+
+static int Lread(lua_State *L) {
+  static ssize_t (*real_read)(int sockfd, void *buf, size_t len) = NULL;
+
+  int sockfd = luaL_checkint(L, 1);
+  int len = luaL_checkint(L, 2);
+  void *buf;
+
+  if (len > sizeof(sbuf)) {
+    buf = malloc(len);
+  } else {
+    buf = sbuf;
+  }
+  if(!real_read) real_read = dlsym(RTLD_NEXT, "read");
+  ssize_t ret = real_read(sockfd, buf, len);
+  if (ret >= 0) {
+    lua_pushlstring(L, buf, ret);
+    if (buf != sbuf) { free(buf); }
+  } else {
+    lua_pushnil(L);
+  }
+  return 1;
+}
+
 static int Lrecvfrom(lua_State *L) {
   static ssize_t (*real_recvfrom)(int sockfd, void *buf, size_t len, int flags,
                         struct sockaddr *src_addr, socklen_t *addrlen) = NULL;
@@ -412,6 +445,8 @@ static const luaL_reg o_funcs[] = {
   {"write", Lwrite},
   {"sendto", Lsendto},
   {"recv", Lrecv},
+  {"intercept_read", Lintercept_read},
+  {"read", Lread},
   {"recvfrom", Lrecvfrom},
   {"poll", Lpoll},
   {"select", Lselect},
@@ -424,7 +459,7 @@ static void check_lock(int latch) {
   static __thread volatile int lock = 0;
   if(latch) {
     while (lock > 0) { 
-      printf("locked, waiting!\n");
+      // printf("locked, waiting!\n");
       usleep(1000);
     }
     lock++;
@@ -616,6 +651,38 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
   return ret;
 }
 
+ssize_t read(int fd, void *buf, size_t len) {
+  int ret;
+  lua_State *L;
+  int retlen;
+  char *retbuf;
+  ssize_t retx;
+  static ssize_t (*real_read)(int sockfd, void *buf, size_t len) = NULL;
+
+  if(!real_read) real_read = dlsym(RTLD_NEXT, "read");
+  intercept_read = 0;
+  if(!intercept_read) {
+    retx = real_read(fd, buf, len);
+    return retx;
+  }
+  L = Lua();
+
+  lua_getglobal(L, "gncci_read");
+  lua_pushnumber(L, fd);
+  lua_pushnumber(L, len); 
+  lua_pcall_with_debug(L, 2, 1); 
+  if (lua_isnil(L, -1)) {
+    ret = -1;
+  } else {
+    retbuf = (void *)lua_tostring(L, -1);
+    retlen = lua_objlen(L, -1);
+    memcpy(buf, retbuf, retlen);
+    ret = retlen;
+  }
+  check_lock(0);
+  return ret;
+}
+
 ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
   int ret;
   lua_State *L = Lua();
@@ -699,6 +766,6 @@ static void gncci_init () {
     assert(nread == sb.st_size);
     close(fd);
     L = Lua();
-    check_lock(0);    
+    check_lock(0); 
   }
 }
